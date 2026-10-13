@@ -150,14 +150,20 @@
   }
   function renderScan() {
     var j = lastMarkets, el = document.getElementById('scan'); if (!el || !j) return;
-    var sc = j.scan;
-    if (!sc.supported) { el.innerHTML = '<div class="note">Scanner needs 4h candles, which this exchange does not provide.</div>'; return; }
-    var buy = sc.hits.filter(function (h) { return h.dir > 0; }).slice(0, 12), sell = sc.hits.filter(function (h) { return h.dir < 0; }).slice(0, 12);
-    function card(h, c) { return '<div class="card ' + c + '" data-p="' + esc(h.pair) + '"><b>' + esc(h.pair) + '</b><span class="' + cls(h.changePct) + '">' + pct(h.changePct) + '</span> <span class="s">· score ' + h.score + '</span><div class="s">K ' + h.k.toFixed(0) + ' / D ' + h.d.toFixed(0) + ' · ' + (h.barsAgo === 0 ? 'this candle' : h.barsAgo + ' candle(s) ago') + (h.bb ? ' · BB ' + (h.bb === 2 ? 'close outside' : 'touch') : '') + '</div></div>'; }
-    el.innerHTML = '<h3>4h scanner · Stoch RSI × Bollinger <span class="mut" style="font-weight:400">(top ' + sc.total + ' by volume' + (sc.running ? ', scanning…' : '') + ')</span></h3>' +
-      '<div class="note">Buy zone: K crosses above D below 30 · Sell zone: K crosses below D above 70 (newest 3 candles). Not financial advice.</div>' +
-      '<div class="cards">' + (buy.map(function (h) { return card(h, 'buy'); }).join('') || '<span class="note">No buy-zone coins right now</span>') + '</div>' +
-      '<div class="cards" style="margin-top:8px">' + (sell.map(function (h) { return card(h, 'sell'); }).join('') || '<span class="note">No sell-zone coins right now</span>') + '</div>';
+    var BBN = ['', 'near', 'touch', 'outside'];
+    function item(h, c) {
+      if (h.a) return '<div class="card ' + c + '" data-p="' + esc(h.pair) + '"><b>' + esc(base(h.pair)) + '</b> <span class="' + cls(h.changePct) + '">' + pct(h.changePct, 1) + '</span><div class="s">1h K' + h.a.k.toFixed(0) + '/D' + h.a.d.toFixed(0) + ' · BB ' + BBN[h.a.bb] + '</div><div class="s">4h K' + h.b.k.toFixed(0) + '/D' + h.b.d.toFixed(0) + ' · BB ' + BBN[h.b.bb] + ' · ' + h.score + '</div></div>';
+      return '<div class="card ' + c + '" data-p="' + esc(h.pair) + '"><b>' + esc(base(h.pair)) + '</b> <span class="' + cls(h.changePct) + '">' + pct(h.changePct, 1) + '</span><div class="s">K ' + h.k.toFixed(0) + '/D ' + h.d.toFixed(0) + ' · ' + (h.barsAgo === 0 ? 'now' : h.barsAgo + ' ago') + (h.bb ? ' · BB' + (h.bb === 2 ? '✓✓' : '✓') : '') + ' · ' + h.score + '</div></div>'; }
+    var cols = j.scan.order.map(function (iv) {
+      var sc = j.scan.tfs[iv], title = (iv === 'combo' ? '1H + 4H' : iv.toUpperCase()) + ' <span class="mut" style="font-weight:400">· RSI ' + sc.low + '/' + sc.high + (iv === 'combo' ? ' · both TFs' : '') + '</span>';
+      if (!sc.supported) return '<div class="scol"><h4>' + title + '</h4><div class="note">Not offered by this exchange</div></div>';
+      var buy = sc.hits.filter(function (h) { return h.dir > 0; }).slice(0, 15), sell = sc.hits.filter(function (h) { return h.dir < 0; }).slice(0, 15);
+      var status = sc.updatedAt ? '' : '<div class="note">' + (sc.running ? 'Scanning…' : 'Waiting…') + '</div>';
+      return '<div class="scol"><h4>' + title + (sc.running && sc.updatedAt ? ' <span class="mut" style="font-weight:400">↻</span>' : '') + '</h4>' + status +
+        '<div class="sub up">▲ Bullish (' + buy.length + ')</div><div class="list">' + (buy.map(function (h) { return item(h, 'buy'); }).join('') || '<div class="note">—</div>') + '</div>' +
+        '<div class="sub dn">▼ Bearish (' + sell.length + ')</div><div class="list">' + (sell.map(function (h) { return item(h, 'sell'); }).join('') || '<div class="note">—</div>') + '</div></div>';
+    }).join('');
+    el.innerHTML = '<h3>Suggested coins · Stoch RSI × Bollinger scanner</h3><div class="note">Top 150 by volume. Columns 1–4 — bullish: K crosses above D below the low level; bearish: K crosses below D above the high level (newest 3 candles); BB✓ = touched band, ✓✓ = closed outside. Last column — no cross needed: on BOTH 1h and 4h, K and D are beyond 20/80 and price is near / touching / outside the same Bollinger band. Last number = score. Not financial advice.</div><div class="scols">' + cols + '</div>';
   }
   function renderTable() {
     var j = lastMarkets, tb = document.getElementById('tb'); if (!tb || !j) return;
@@ -207,10 +213,10 @@
       var L = window.LightweightCharts;
       var chart = L.createChart(box, {
         autoSize: true,
-        layout: { background: { color: '#181a20' }, textColor: '#848e9c', fontSize: 11 },
-        grid: { vertLines: { color: '#20262d' }, horzLines: { color: '#20262d' } },
-        rightPriceScale: { borderColor: '#2b3139', scaleMargins: { top: 0.06, bottom: 0.34 } },
-        timeScale: { borderColor: '#2b3139', timeVisible: true, secondsVisible: false },
+        layout: { background: { color: '#ffffff' }, textColor: '#4b5563', fontSize: 11 },
+        grid: { vertLines: { color: '#eef0f3' }, horzLines: { color: '#eef0f3' } },
+        rightPriceScale: { borderColor: '#d5d9de', scaleMargins: { top: 0.06, bottom: 0.34 } },
+        timeScale: { borderColor: '#d5d9de', timeVisible: true, secondsVisible: false },
         crosshair: { mode: 0 },
       });
       cleanups.push(function () { try { chart.remove(); } catch (e) { /* */ } });
@@ -218,13 +224,13 @@
       var vol = chart.addHistogramSeries({ priceScaleId: 'vol', priceFormat: { type: 'volume' }, lastValueVisible: false, priceLineVisible: false });
       chart.priceScale('vol').applyOptions({ scaleMargins: { top: 0.68, bottom: 0.3 } });
       var lo = { lineWidth: 1, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false };
-      var bbU = chart.addLineSeries(Object.assign({ color: '#f0b90b' }, lo));
-      var bbM = chart.addLineSeries(Object.assign({ color: '#5d6673', lineStyle: 2 }, lo));
-      var bbL = chart.addLineSeries(Object.assign({ color: '#f0b90b' }, lo));
+      var bbU = chart.addLineSeries(Object.assign({ color: '#e53935' }, lo));
+      var bbM = chart.addLineSeries(Object.assign({ color: '#9aa0a6', lineStyle: 2 }, lo));
+      var bbL = chart.addLineSeries(Object.assign({ color: '#1e66f5' }, lo));
       var stK = chart.addLineSeries({ priceScaleId: 'st', color: '#2962ff', lineWidth: 1, priceLineVisible: false, lastValueVisible: true, crosshairMarkerVisible: false, priceFormat: { type: 'custom', formatter: function (v) { return v.toFixed(0); } } });
       var stD = chart.addLineSeries({ priceScaleId: 'st', color: '#ff6d00', lineWidth: 1, priceLineVisible: false, lastValueVisible: true, crosshairMarkerVisible: false });
       chart.priceScale('st').applyOptions({ scaleMargins: { top: 0.74, bottom: 0.02 } });
-      [20, 80].forEach(function (v) { stK.createPriceLine({ price: v, color: '#3a4350', lineWidth: 1, lineStyle: 2, axisLabelVisible: false }); });
+      [20, 80].forEach(function (v) { stK.createPriceLine({ price: v, color: '#b8bec6', lineWidth: 1, lineStyle: 2, axisLabelVisible: false }); });
       var stat = { cs: cs, vol: vol, bbU: bbU, bbM: bbM, bbL: bbL, stK: stK, stD: stD };
       var series = { cs: [], vol: [], bbU: [], bbM: [], bbL: [], stK: [], stD: [] };
       var calc = null;
@@ -235,7 +241,7 @@
         calc = { bb: bb, sr: sr };
         function line(arr) { var o = []; for (var i = 0; i < candles.length; i++) if (!isNaN(arr[i])) o.push({ time: candles[i].time + TZ, value: arr[i] }); return o; }
         series.cs = candles.map(function (c) { return { time: c.time + TZ, open: c.open, high: c.high, low: c.low, close: c.close }; });
-        series.vol = candles.map(function (c) { return { time: c.time + TZ, value: c.volume, color: c.close >= c.open ? 'rgba(14,203,129,.35)' : 'rgba(246,70,93,.35)' }; });
+        series.vol = candles.map(function (c) { return { time: c.time + TZ, value: c.volume, color: c.close >= c.open ? 'rgba(14,203,129,.30)' : 'rgba(246,70,93,.30)' }; });
         series.bbU = line(bb.up); series.bbM = line(bb.mid); series.bbL = line(bb.lo); series.stK = line(sr.k); series.stD = line(sr.d);
       }
       function apply(full) {
@@ -250,7 +256,7 @@
         if (i == null || i < 0 || i >= candles.length) i = candles.length - 1;
         var c = candles[i], k = calc.sr.k[i], d = calc.sr.d[i];
         legend.innerHTML = '<b>' + esc(pair) + ' · ' + iv + '</b> &nbsp;O ' + fp(c.open) + ' H ' + fp(c.high) + ' L ' + fp(c.low) + ' C <span class="' + (c.close >= c.open ? 'up' : 'dn') + '">' + fp(c.close) + '</span><br>' +
-          '<span style="color:#f0b90b">BB ' + (isNaN(calc.bb.up[i]) ? '—' : fp(calc.bb.up[i]) + ' / ' + fp(calc.bb.lo[i])) + '</span> &nbsp;<span style="color:#5b8cff">K ' + (isNaN(k) ? '—' : k.toFixed(1)) + '</span> <span style="color:#ff8a33">D ' + (isNaN(d) ? '—' : d.toFixed(1)) + '</span>';
+          'BB ' + (isNaN(calc.bb.up[i]) ? '—' : '<span style="color:#e53935">' + fp(calc.bb.up[i]) + '</span> / <span style="color:#1e66f5">' + fp(calc.bb.lo[i]) + '</span>') + ' &nbsp;<span style="color:#5b8cff">K ' + (isNaN(k) ? '—' : k.toFixed(1)) + '</span> <span style="color:#ff8a33">D ' + (isNaN(d) ? '—' : d.toFixed(1)) + '</span>';
       }
       chart.subscribeCrosshairMove(function (p) {
         if (!p || !p.time) return legendText(null);
@@ -290,6 +296,16 @@
       '<div class="cell heat"><div class="bar2"><b style="color:var(--tx)">Liquidation map · ' + esc(base(pair)) + '</b><span class="mut" id="hnote"></span><span class="grow"></span><a class="btn ghost" style="padding:4px 10px" target="_blank" rel="noopener" href="' + heatUrl + '">Coinglass ↗</a></div><div style="position:relative;flex:1;min-height:0"><canvas id="heatc" style="position:absolute;inset:0;width:100%;height:100%"></canvas><div class="msg" id="heatmsg">Loading…</div></div></div></div>';
     document.getElementById('lo').onclick = logout;
     document.getElementById('back').onclick = function () { location.hash = '#/m/' + ex + '/' + market; };
+
+    function toggleBig(cellEl) {
+      var was = cellEl.classList.contains('big');
+      [].forEach.call(document.querySelectorAll('.cell.big'), function (c) { c.classList.remove('big'); });
+      if (!was) cellEl.classList.add('big');
+      document.body.classList.toggle('hasbig', !was);
+    }
+    [].forEach.call(document.querySelectorAll('.cell[data-iv]'), function (c) { c.title = 'Double-click to enlarge / restore'; c.addEventListener('dblclick', function () { toggleBig(c); }); });
+    function onEsc(e) { if (e.key === 'Escape') { var b = document.querySelector('.cell.big'); if (b) toggleBig(b); } }
+    document.addEventListener('keydown', onEsc); cleanups.push(function () { document.removeEventListener('keydown', onEsc); document.body.classList.remove('hasbig'); });
 
     var snap4h = null;
     [].forEach.call(document.querySelectorAll('.cell[data-iv]'), function (c) {

@@ -64,13 +64,14 @@
     return { up: up, mid: mid, lo: lo };
   }
 
-  var LOW = 30, HIGH = 70, WINDOW = 3;
+  var WINDOW = 3;
 
   /**
    * dir +1 = buy zone (K crossed above D below 30), -1 = sell zone (K crossed below D above 70), within the newest 3 candles.
    * bb: 0 none, 1 a recent candle touched the outer band, 2 a recent candle closed outside it.
    */
-  function evaluate(candles) {
+  function evaluate(candles, opts) {
+    var LOW = (opts && opts.low) || 30, HIGH = (opts && opts.high) || 70;
     var n = candles.length;
     if (n < 60) return null;
     var close = candles.map(function (c) { return c.close; });
@@ -95,6 +96,27 @@
     return { dir: dir, score: Math.round(fresh + depth + touch * 20), k: k[cross], d: d[cross], barsAgo: barsAgo, bb: touch };
   }
 
+  /**
+   * Zone check on the newest candle (no K/D cross needed): K and D both beyond low/high AND price touching, closing outside or
+   * within `near` (fraction of band width) of the matching Bollinger band. dir +1 bullish (low zone, lower band), -1 bearish.
+   * bb: 1 near, 2 touched, 3 closed outside.
+   */
+  function zone(candles, opts) {
+    var low = (opts && opts.low) || 20, high = (opts && opts.high) || 80, near = (opts && opts.near) || 0.1;
+    var n = candles.length;
+    if (n < 60) return null;
+    var close = candles.map(function (c) { return c.close; });
+    var sr = stochRsi(close), bb = bollinger(close), L = n - 1, c = candles[L];
+    var k = sr.k[L], d = sr.d[L], up = bb.up[L], lo = bb.lo[L];
+    if (isNaN(k) || isNaN(d) || isNaN(up) || isNaN(lo) || up <= lo) return null;
+    var w = up - lo, dir = 0, touch = 0;
+    if (k < low && d < low) { dir = 1; touch = c.close < lo ? 3 : c.low <= lo ? 2 : (c.close - lo) / w <= near ? 1 : 0; }
+    else if (k > high && d > high) { dir = -1; touch = c.close > up ? 3 : c.high >= up ? 2 : (up - c.close) / w <= near ? 1 : 0; }
+    if (!dir || !touch) return null;
+    var depth = dir > 0 ? (low - Math.max(k, d)) / low : (Math.min(k, d) - high) / (100 - high);
+    return { dir: dir, k: k, d: d, bb: touch, score: Math.round(Math.min(1, Math.max(0, depth)) * 50 + touch * 16) };
+  }
+
   // Latest K / D / band position, for the info panel
   function snapshot(candles) {
     var n = candles.length;
@@ -106,5 +128,5 @@
     return { k: sr.k[L], d: sr.d[L], up: bb.up[L], lo: bb.lo[L], mid: bb.mid[L], close: c.close, pos: pos };
   }
 
-  return { rsi: rsi, sma: sma, stochRsi: stochRsi, bollinger: bollinger, evaluate: evaluate, snapshot: snapshot };
+  return { rsi: rsi, sma: sma, stochRsi: stochRsi, bollinger: bollinger, evaluate: evaluate, zone: zone, snapshot: snapshot };
 });

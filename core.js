@@ -354,13 +354,27 @@ class Tracker {
 const states = new Map();
 const IDLE_MS = 10 * 60000;
 
+/* Scanner timeframes: Stoch RSI K/D cross outside [low, high] in the newest 3 candles + Bollinger confirmation. Edit here to change. */
+const SCAN_TFS = [
+  { iv: '15m', low: 20, high: 80, every: 5 * 60000 },
+  { iv: '1h', low: 20, high: 80, every: 10 * 60000 },
+  { iv: '4h', low: 20, high: 80, every: 15 * 60000 },
+  { iv: '1d', low: 20, high: 80, every: 60 * 60000 },
+  { iv: 'combo', low: 20, high: 80, every: 10 * 60000, combo: ['1h', '4h'] },
+];
+function newScan() {
+  const tfs = {};
+  for (const t of SCAN_TFS) tfs[t.iv] = { supported: true, running: false, hits: [], total: 0, updatedAt: 0, low: t.low, high: t.high };
+  return { tfs, order: SCAN_TFS.map((t) => t.iv) };
+}
+
 function getState(exId, market) {
   const ex = exById(exId);
   if (!ex.markets.includes(market)) market = ex.markets[0];
   const key = ex.id + '|' + market;
   let st = states.get(key);
   if (!st) {
-    st = { key, ex, market, tickers: new Map(), updatedAt: 0, error: null, tracker: new Tracker(), running: false, lastUsed: Date.now(), scan: { running: false, supported: true, hits: [], total: 0, updatedAt: 0 } };
+    st = { key, ex, market, tickers: new Map(), updatedAt: 0, error: null, tracker: new Tracker(), running: false, lastUsed: Date.now(), scan: newScan() };
     states.set(key, st);
   }
   st.lastUsed = Date.now();
@@ -402,19 +416,31 @@ function startLoops(st) {
   }
 
   (async function scanLoop() {
-    if (!st.ex.intervals.includes('4h')) { st.scan = { running: false, supported: false, hits: [], total: 0, updatedAt: 0 }; return; }
+    const due = {};
     while (alive()) {
       if (!st.tickers.size) { await sleep(2500); continue; }
-      st.scan.running = true;
+      const tf = SCAN_TFS.find((x) => (due[x.iv] || 0) <= Date.now());
+      if (!tf) { await sleep(3000); continue; }
+      const slot = st.scan.tfs[tf.iv];
+      const need = tf.combo || [tf.iv];
+      if (!need.every((v) => st.ex.intervals.includes(v))) { slot.supported = false; due[tf.iv] = Infinity; continue; }
+      slot.running = true;
       try {
         const top = [...st.tickers.values()].sort((a, b) => b.quoteVolume - a.quoteVolume).slice(0, 150);
-        const res = await pool(top, 3, async (t) => {
-          const h = Ind.evaluate(await st.ex.candles(t.pair, st.market, '4h', 120));
+        const res = await pool(top, 4, async (t) => {
+          if (tf.combo) {
+            const a = Ind.zone(await st.ex.candles(t.pair, st.market, tf.combo[0], 100), { low: tf.low, high: tf.high });
+            if (!a) return null;
+            const b = Ind.zone(await st.ex.candles(t.pair, st.market, tf.combo[1], 100), { low: tf.low, high: tf.high });
+            if (!b || b.dir !== a.dir) return null;
+            return { dir: a.dir, score: a.score + b.score, a, b, pair: t.pair, last: t.last, changePct: t.changePct };
+          }
+          const h = Ind.evaluate(await st.ex.candles(t.pair, st.market, tf.iv, 100), { low: tf.low, high: tf.high });
           return h && Object.assign(h, { pair: t.pair, last: t.last, changePct: t.changePct });
         });
-        st.scan = { running: false, supported: true, hits: res.filter(Boolean).sort((a, b) => b.score - a.score), total: top.length, updatedAt: Date.now() };
-      } catch (e) { st.scan.running = false; }
-      for (let i = 0; i < 200 && alive(); i++) await sleep(3000); // ~10 min, but wake early when idle
+        Object.assign(slot, { running: false, hits: res.filter(Boolean).sort((a, b) => b.score - a.score), total: top.length, updatedAt: Date.now() });
+      } catch (e) { slot.running = false; }
+      due[tf.iv] = Date.now() + tf.every;
     }
   })();
 }
