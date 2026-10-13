@@ -77,8 +77,8 @@ const binance = (() => {
       return out;
     },
     async ticker(pair, m) { const t = parse(await api(m, '/ticker/24hr?symbol=' + sym(pair))); if (!t) throw new Error('Unsupported pair'); return t; },
-    async candles(pair, m, iv, limit) {
-      const arr = await api(m, `/klines?symbol=${sym(pair)}&interval=${iv}&limit=${Math.min(limit, 1000)}`);
+    async candles(pair, m, iv, limit, endSec) {
+      const arr = await api(m, `/klines?symbol=${sym(pair)}&interval=${iv}&limit=${Math.min(limit, 1000)}` + (endSec ? '&endTime=' + endSec * 1000 : ''));
       return arr.map((k) => ({ time: Math.floor(k[0] / 1000), open: +k[1], high: +k[2], low: +k[3], close: +k[4], volume: +k[5] }));
     },
     async futuresInfo(pair) {
@@ -130,8 +130,8 @@ const bybit = (() => {
     tradeUrl: (pair, m) => { const [b, q] = pair.split('/'); return m === 'spot' ? `https://www.bybit.com/en/trade/spot/${b}/${q}` : `https://www.bybit.com/trade/usdt/${b}${q}`; },
     async tickers(m) { return (await api('/tickers?category=' + cat(m))).result.list.map(parse).filter(Boolean); },
     async ticker(pair, m) { const t = parse((await api(`/tickers?category=${cat(m)}&symbol=${sym(pair)}`)).result.list[0]); if (!t) throw new Error('Unsupported pair'); return t; },
-    async candles(pair, m, iv, limit) {
-      const l = (await api(`/kline?category=${cat(m)}&symbol=${sym(pair)}&interval=${ivMap[iv]}&limit=${Math.min(limit, 1000)}`)).result.list;
+    async candles(pair, m, iv, limit, endSec) {
+      const l = (await api(`/kline?category=${cat(m)}&symbol=${sym(pair)}&interval=${ivMap[iv]}&limit=${Math.min(limit, 1000)}` + (endSec ? '&end=' + endSec * 1000 : ''))).result.list;
       return l.map((k) => ({ time: Math.floor(+k[0] / 1000), open: +k[1], high: +k[2], low: +k[3], close: +k[4], volume: +k[5] })).reverse();
     },
     async futuresInfo(pair) {
@@ -164,9 +164,16 @@ const okx = (() => {
     tradeUrl: (pair, m) => { const p = pair.replace('/', '-').toLowerCase(); return m === 'spot' ? `https://www.okx.com/trade-spot/${p}` : `https://www.okx.com/trade-swap/${p}-swap`; },
     async tickers(m) { return (await getJSON(`${rest}/market/tickers?instType=${m === 'spot' ? 'SPOT' : 'SWAP'}`)).data.map((o) => parse(o, m)).filter(Boolean); },
     async ticker(pair, m) { const t = parse((await getJSON(`${rest}/market/ticker?instId=${inst(pair, m)}`)).data[0], m); if (!t) throw new Error('Unsupported pair'); return t; },
-    async candles(pair, m, iv, limit) {
-      const d = (await getJSON(`${rest}/market/candles?instId=${inst(pair, m)}&bar=${barMap[iv]}&limit=${Math.min(limit, 300)}`)).data;
-      return d.map((k) => ({ time: Math.floor(+k[0] / 1000), open: +k[1], high: +k[2], low: +k[3], close: +k[4], volume: +k[5] })).reverse();
+    async candles(pair, m, iv, limit, endSec) {
+      const map = (d) => d.map((k) => ({ time: Math.floor(+k[0] / 1000), open: +k[1], high: +k[2], low: +k[3], close: +k[4], volume: +k[5] }));
+      const base = `instId=${inst(pair, m)}&bar=${barMap[iv]}`;
+      let out = map((await getJSON(`${rest}/market/candles?${base}&limit=${Math.min(limit, 300)}` + (endSec ? '&after=' + (endSec + 1) * 1000 : ''))).data);   // newest first
+      while (out.length < limit && out.length) {
+        const page = (await getJSON(`${rest}/market/history-candles?${base}&limit=100&after=${out[out.length - 1].time * 1000}`)).data;
+        if (!page.length) break;
+        out = out.concat(map(page));
+      }
+      return out.slice(0, limit).reverse();
     },
     async futuresInfo(pair) {
       const id = inst(pair, 'futures');
@@ -221,8 +228,8 @@ const deribit = (() => {
       return out;
     },
     async ticker(pair) { const t = parse((await getJSON(`${api}/get_book_summary_by_instrument?instrument_name=${inst(pair)}`)).result[0]); if (!t) throw new Error('Unsupported pair'); return t; },
-    async candles(pair, m, iv, limit) {
-      const now = Date.now(), start = now - IV_SEC[iv] * 1000 * limit;
+    async candles(pair, m, iv, limit, endSec) {
+      const now = endSec ? endSec * 1000 : Date.now(), start = now - IV_SEC[iv] * 1000 * limit;
       const r = (await getJSON(`${api}/get_tradingview_chart_data?instrument_name=${inst(pair)}&start_timestamp=${start}&end_timestamp=${now}&resolution=${res[iv]}`)).result;
       return r.ticks.map((t, i) => ({ time: Math.floor(t / 1000), open: r.open[i], high: r.high[i], low: r.low[i], close: r.close[i], volume: r.volume[i] }));
     },
@@ -255,8 +262,8 @@ const mock = (() => {
     tradeUrl: () => 'https://example.com',
     async tickers(m) { return coins.map((c) => tick(c, m)); },
     async ticker(pair, m) { return tick(pair.split('/')[0], m); },
-    async candles(pair, m, iv, limit) {
-      const step = IV_SEC[iv], now = Math.floor(Date.now() / 1000), end = now - (now % step), out = [];
+    async candles(pair, m, iv, limit, endSec) {
+      const step = IV_SEC[iv], now = endSec || Math.floor(Date.now() / 1000), end = now - (now % step), out = [];
       for (let i = limit - 1; i >= 0; i--) {
         const t = end - i * step, r = rnd(t ^ pair.length), o = price(pair, t), c = price(pair, t + step) * (1 + (r() - 0.5) * 0.01);
         out.push({ time: t, open: o, high: Math.max(o, c) * (1 + r() * 0.004), low: Math.min(o, c) * (1 - r() * 0.004), close: c, volume: 100 + r() * 900 });
@@ -427,18 +434,22 @@ function startLoops(st) {
       slot.running = true;
       try {
         const top = [...st.tickers.values()].sort((a, b) => b.quoteVolume - a.quoteVolume).slice(0, 150);
+        let failed = 0, cand = 0;
         const res = await pool(top, 4, async (t) => {
-          if (tf.combo) {
-            const a = Ind.zone(await st.ex.candles(t.pair, st.market, tf.combo[0], 100), { low: tf.low, high: tf.high });
-            if (!a) return null;
-            const b = Ind.zone(await st.ex.candles(t.pair, st.market, tf.combo[1], 100), { low: tf.low, high: tf.high });
-            if (!b || b.dir !== a.dir) return null;
-            return { dir: a.dir, score: a.score + b.score, a, b, pair: t.pair, last: t.last, changePct: t.changePct };
-          }
-          const h = Ind.evaluate(await st.ex.candles(t.pair, st.market, tf.iv, 100), { low: tf.low, high: tf.high });
-          return h && Object.assign(h, { pair: t.pair, last: t.last, changePct: t.changePct });
+          try {
+            if (tf.combo) {
+              const a = Ind.zone(await st.ex.candles(t.pair, st.market, tf.combo[0], 100), { low: tf.low, high: tf.high });
+              if (!a) return null;
+              cand++;
+              const b = Ind.zone(await st.ex.candles(t.pair, st.market, tf.combo[1], 100), { low: tf.low, high: tf.high });
+              if (!b || b.dir !== a.dir) return null;
+              return { dir: a.dir, score: a.score + b.score, a, b, pair: t.pair, last: t.last, changePct: t.changePct };
+            }
+            const h = Ind.evaluate(await st.ex.candles(t.pair, st.market, tf.iv, 100), { low: tf.low, high: tf.high });
+            return h && Object.assign(h, { pair: t.pair, last: t.last, changePct: t.changePct });
+          } catch (e) { failed++; return null; }
         });
-        Object.assign(slot, { running: false, hits: res.filter(Boolean).sort((a, b) => b.score - a.score), total: top.length, updatedAt: Date.now() });
+        Object.assign(slot, { running: false, hits: res.filter(Boolean).sort((a, b) => b.score - a.score), total: top.length, failed, cand, updatedAt: Date.now() });
       } catch (e) { slot.running = false; }
       due[tf.iv] = Date.now() + tf.every;
     }
@@ -571,8 +582,9 @@ async function handle(path, q) {
     let market = q.get('market') || 'spot';
     if (!ex.markets.includes(market)) market = ex.markets[0];
     if (!PAIR_RE.test(pair) || !ex.intervals.includes(iv)) throw bad('bad request');
-    const limit = Math.min(Math.max(parseInt(q.get('limit') || '300', 10) || 300, 20), 500);
-    return cached(`c|${ex.id}|${market}|${pair}|${iv}|${limit}`, 2500, () => ex.candles(pair, market, iv, limit));
+    const limit = Math.min(Math.max(parseInt(q.get('limit') || '300', 10) || 300, 20), 1000);
+    const end = parseInt(q.get('end') || '0', 10) || 0;
+    return cached(`c|${ex.id}|${market}|${pair}|${iv}|${limit}|${end}`, end ? 60000 : 2500, () => ex.candles(pair, market, iv, limit, end || undefined));
   }
   const e = new Error('not found'); e.status = 404; throw e;
 }

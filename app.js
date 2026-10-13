@@ -158,12 +158,12 @@
       var sc = j.scan.tfs[iv], title = (iv === 'combo' ? '1H + 4H' : iv.toUpperCase()) + ' <span class="mut" style="font-weight:400">· RSI ' + sc.low + '/' + sc.high + (iv === 'combo' ? ' · both TFs' : '') + '</span>';
       if (!sc.supported) return '<div class="scol"><h4>' + title + '</h4><div class="note">Not offered by this exchange</div></div>';
       var buy = sc.hits.filter(function (h) { return h.dir > 0; }).slice(0, 15), sell = sc.hits.filter(function (h) { return h.dir < 0; }).slice(0, 15);
-      var status = sc.updatedAt ? '' : '<div class="note">' + (sc.running ? 'Scanning…' : 'Waiting…') + '</div>';
+      var status = sc.updatedAt ? '<div class="note">Scanned ' + sc.total + ' · ' + new Date(sc.updatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) + (iv === 'combo' ? ' · 1h candidates ' + sc.cand + ' → both ' + sc.hits.length : '') + (sc.failed > sc.total * 0.1 ? ' · <span class="dn">' + sc.failed + ' requests failed</span>' : '') + '</div>' : '<div class="note">' + (sc.running ? 'Scanning…' : 'Waiting…') + '</div>';
       return '<div class="scol"><h4>' + title + (sc.running && sc.updatedAt ? ' <span class="mut" style="font-weight:400">↻</span>' : '') + '</h4>' + status +
         '<div class="sub up">▲ Bullish (' + buy.length + ')</div><div class="list">' + (buy.map(function (h) { return item(h, 'buy'); }).join('') || '<div class="note">—</div>') + '</div>' +
         '<div class="sub dn">▼ Bearish (' + sell.length + ')</div><div class="list">' + (sell.map(function (h) { return item(h, 'sell'); }).join('') || '<div class="note">—</div>') + '</div></div>';
     }).join('');
-    el.innerHTML = '<h3>Suggested coins · Stoch RSI × Bollinger scanner</h3><div class="note">Top 150 by volume. Columns 1–4 — bullish: K crosses above D below the low level; bearish: K crosses below D above the high level (newest 3 candles); BB✓ = touched band, ✓✓ = closed outside. Last column — no cross needed: on BOTH 1h and 4h, K and D are beyond 20/80 and price is near / touching / outside the same Bollinger band. Last number = score. Not financial advice.</div><div class="scols">' + cols + '</div>';
+    el.innerHTML = '<h3>Suggested coins · Stoch RSI × Bollinger scanner</h3><div class="note">Top 150 by volume. Columns 1–4 — bullish: K crosses above D below the low level; bearish: K crosses below D above the high level (newest 3 candles); BB✓ = touched band, ✓✓ = closed outside. Last column — no cross needed: on BOTH 1h and 4h, K is beyond 20/80 and price is near / touching / outside the same Bollinger band. Last number = score. Not financial advice.</div><div class="scols">' + cols + '</div>';
   }
   function renderTable() {
     var j = lastMarkets, tb = document.getElementById('tb'); if (!tb || !j) return;
@@ -268,14 +268,30 @@
       var first = true, busy = false;
       function load() {
         if (busy) return; busy = true;
-        api('/api/candles?ex=' + ex + '&market=' + market + '&pair=' + encodeURIComponent(pair) + '&interval=' + iv + '&limit=300').then(function (data) {
+        api('/api/candles?ex=' + ex + '&market=' + market + '&pair=' + encodeURIComponent(pair) + '&interval=' + iv + '&limit=' + (first ? 1000 : 300)).then(function (data) {
           busy = false; if (vid !== viewId) return;
           if (!data.length) { if (first) showMsg('No candles for ' + iv); return; }
-          candles = data; compute(); apply(first);
+          if (first) candles = data;
+          else { var t0 = data[0].time, older = candles.filter(function (c) { return c.time < t0; }); candles = older.concat(data); }
+          compute(); apply(first);
           if (first) { first = false; showMsg(''); chart.timeScale().setVisibleLogicalRange({ from: Math.max(0, candles.length - 110), to: candles.length + 6 }); }
           legendText(null); if (onData) onData(iv, candles);
         }).catch(function (e) { busy = false; if (first && e.message !== 'login') showMsg('Could not load ' + iv + ': ' + e.message); });
       }
+      var loadingOld = false, exhausted = false;
+      function loadOlder() {
+        if (loadingOld || exhausted || first || !candles.length) return;
+        loadingOld = true;
+        var rng = chart.timeScale().getVisibleLogicalRange();
+        api('/api/candles?ex=' + ex + '&market=' + market + '&pair=' + encodeURIComponent(pair) + '&interval=' + iv + '&limit=1000&end=' + (candles[0].time - 1)).then(function (data) {
+          loadingOld = false; if (vid !== viewId) return;
+          data = data.filter(function (c) { return c.time < candles[0].time; });
+          if (data.length < 5) { exhausted = true; return; }
+          candles = data.concat(candles); compute(); apply(true);
+          if (rng) chart.timeScale().setVisibleLogicalRange({ from: rng.from + data.length, to: rng.to + data.length });
+        }).catch(function () { loadingOld = false; });
+      }
+      chart.timeScale().subscribeVisibleLogicalRangeChange(function (r) { if (r && r.from < 25) loadOlder(); });
       load(); every(load, 6000);
     }).catch(function () { showMsg('Chart library could not be loaded. Check your internet / VPN, then reload.'); });
   }

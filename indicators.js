@@ -97,12 +97,12 @@
   }
 
   /**
-   * Zone check on the newest candle (no K/D cross needed): K and D both beyond low/high AND price touching, closing outside or
+   * Zone check on the newest candle (no K/D cross needed): the fast line K beyond low/high AND price touching, closing outside or
    * within `near` (fraction of band width) of the matching Bollinger band. dir +1 bullish (low zone, lower band), -1 bearish.
    * bb: 1 near, 2 touched, 3 closed outside.
    */
   function zone(candles, opts) {
-    var low = (opts && opts.low) || 20, high = (opts && opts.high) || 80, near = (opts && opts.near) || 0.1;
+    var low = (opts && opts.low) || 20, high = (opts && opts.high) || 80, near = (opts && opts.near) || 0.15;
     var n = candles.length;
     if (n < 60) return null;
     var close = candles.map(function (c) { return c.close; });
@@ -110,8 +110,8 @@
     var k = sr.k[L], d = sr.d[L], up = bb.up[L], lo = bb.lo[L];
     if (isNaN(k) || isNaN(d) || isNaN(up) || isNaN(lo) || up <= lo) return null;
     var w = up - lo, dir = 0, touch = 0;
-    if (k < low && d < low) { dir = 1; touch = c.close < lo ? 3 : c.low <= lo ? 2 : (c.close - lo) / w <= near ? 1 : 0; }
-    else if (k > high && d > high) { dir = -1; touch = c.close > up ? 3 : c.high >= up ? 2 : (up - c.close) / w <= near ? 1 : 0; }
+    if (k < low) { dir = 1; touch = c.close < lo ? 3 : c.low <= lo ? 2 : (c.close - lo) / w <= near ? 1 : 0; }
+    else if (k > high) { dir = -1; touch = c.close > up ? 3 : c.high >= up ? 2 : (up - c.close) / w <= near ? 1 : 0; }
     if (!dir || !touch) return null;
     var depth = dir > 0 ? (low - Math.max(k, d)) / low : (Math.min(k, d) - high) / (100 - high);
     return { dir: dir, k: k, d: d, bb: touch, score: Math.round(Math.min(1, Math.max(0, depth)) * 50 + touch * 16) };
