@@ -150,6 +150,9 @@
   }
   function renderScan() {
     var j = lastMarkets, el = document.getElementById('scan'); if (!el || !j) return;
+    var sig = j.ex + '|' + j.market + '|' + j.scan.order.map(function (iv) { var s = j.scan.tfs[iv]; return s.updatedAt + ':' + s.running + ':' + s.supported; }).join(',');
+    if (sig === el.getAttribute('data-sig')) return;   // nothing changed: keep the lists (and their scroll position) untouched
+    var scrolls = [].map.call(el.querySelectorAll('.list'), function (l) { return l.scrollTop; });
     var BBN = ['', 'near', 'touch', 'outside'];
     function item(h, c) {
       if (h.a) return '<div class="card ' + c + '" data-p="' + esc(h.pair) + '"><b>' + esc(base(h.pair)) + '</b> <span class="' + cls(h.changePct) + '">' + pct(h.changePct, 1) + '</span><div class="s">1h K' + h.a.k.toFixed(0) + '/D' + h.a.d.toFixed(0) + ' · BB ' + BBN[h.a.bb] + '</div><div class="s">4h K' + h.b.k.toFixed(0) + '/D' + h.b.d.toFixed(0) + ' · BB ' + BBN[h.b.bb] + ' · ' + h.score + '</div></div>';
@@ -163,7 +166,14 @@
         '<div class="sub up">▲ Bullish (' + buy.length + ')</div><div class="list">' + (buy.map(function (h) { return item(h, 'buy'); }).join('') || '<div class="note">—</div>') + '</div>' +
         '<div class="sub dn">▼ Bearish (' + sell.length + ')</div><div class="list">' + (sell.map(function (h) { return item(h, 'sell'); }).join('') || '<div class="note">—</div>') + '</div></div>';
     }).join('');
-    el.innerHTML = '<h3>Suggested coins · Stoch RSI × Bollinger scanner</h3><div class="note">Top 150 by volume. Columns 1–4 — bullish: K crosses above D below the low level; bearish: K crosses below D above the high level (newest 3 candles); BB✓ = touched band, ✓✓ = closed outside. Last column — no cross needed: on BOTH 1h and 4h, K is beyond 20/80 and price is near / touching / outside the same Bollinger band. Last number = score. Not financial advice.</div><div class="scols">' + cols + '</div>';
+    var html = '<h3>Suggested coins · Stoch RSI × Bollinger scanner</h3><div class="note">Top 150 by volume. Columns 1–4 — bullish: K crosses above D below the low level; bearish: K crosses below D above the high level (newest 3 candles); BB✓ = touched band, ✓✓ = closed outside. Last column — no cross needed: on BOTH 1h and 4h, K is beyond 20/80 and price is near / touching / outside the same Bollinger band. Last number = score. Not financial advice.</div><div class="scols">' + cols + '</div>';
+    el.setAttribute('data-sig', sig);
+    [].forEach.call(el.querySelectorAll('.list'), function (l, i) { if (scrolls[i]) l.scrollTop = scrolls[i]; });
+    if (el._sig === html) return;                       // nothing changed: leave the DOM (and scroll positions) alone
+    var tops = [].map.call(el.querySelectorAll('.scol .list'), function (l) { return l.scrollTop; }), colTops = [].map.call(el.querySelectorAll('.scol'), function (c) { return c.scrollTop; });
+    el._sig = html; el.innerHTML = html;
+    [].forEach.call(el.querySelectorAll('.scol .list'), function (l, k) { if (tops[k]) l.scrollTop = tops[k]; });
+    [].forEach.call(el.querySelectorAll('.scol'), function (c, k) { if (colTops[k]) c.scrollTop = colTops[k]; });
   }
   function renderTable() {
     var j = lastMarkets, tb = document.getElementById('tb'); if (!tb || !j) return;
